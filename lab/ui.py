@@ -119,16 +119,16 @@ def chain_or_stop() -> Chain:
 
 
 def current_account():
-    """The logged-in wallet. It is also kept in the page link (?w=address) so a refresh keeps you logged in."""
+    """The logged-in wallet. A random session token (not the public address) is kept in the page link
+    (?s=token), so a refresh keeps you logged in but nobody can open a wallet without its PIN."""
     acc_id = st.session_state.get("account_id")
-    if acc_id is None and st.query_params.get("w"):
-        for a in store.list_accounts():
-            if a["address"].lower() == st.query_params["w"].lower():
-                st.session_state["account_id"] = acc_id = a["id"]
-                break
+    if acc_id is None and st.query_params.get("s"):
+        found = store.get_account_by_token(st.query_params["s"])
+        if found is not None:
+            st.session_state["account_id"] = acc_id = found["id"]
     acc = store.get_account(acc_id) if acc_id else None
-    if acc is not None and st.query_params.get("w") != acc["address"]:
-        st.query_params["w"] = acc["address"]
+    if acc is not None and (not acc["session_token"] or st.query_params.get("s") != acc["session_token"]):
+        st.query_params["s"] = acc["session_token"] or store.start_session(acc["id"])
     return acc
 
 
@@ -176,6 +176,7 @@ def sidebar_account() -> None:
             unsafe_allow_html=True,
         )
         if st.button("Log out", icon=":material/logout:", width="stretch"):
+            store.end_session(acc["id"])
             st.session_state.pop("account_id", None)
             st.query_params.clear()
             st.rerun()

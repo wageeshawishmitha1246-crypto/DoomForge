@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
+import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -20,7 +24,12 @@ CREATE TABLE IF NOT EXISTS accounts (
     risk_score REAL,                 -- NULL for a new wallet
     tier INTEGER NOT NULL,
     topups INTEGER NOT NULL DEFAULT 0,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    pin_salt BLOB,                   -- random per-wallet salt
+    pin_hash BLOB,                   -- PBKDF2-HMAC-SHA256 of the PIN (one-way; the PIN itself is never stored)
+    failed_pins INTEGER NOT NULL DEFAULT 0,
+    locked_until REAL NOT NULL DEFAULT 0,
+    session_token TEXT               -- random token kept in the page link so a refresh keeps you logged in
 );
 CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,19 +67,93 @@ def connect():
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         yield conn
         conn.commit()
     finally:
         conn.close()
 
 
+def _migrate(conn) -> None:
+    """Add the PIN columns to a lab.db created before PINs existed."""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)")}
+    for col, ddl in (("pin_salt", "BLOB"), ("pin_hash", "BLOB"),
+                     ("failed_pins", "INTEGER NOT NULL DEFAULT 0"),
+                     ("locked_until", "REAL NOT NULL DEFAULT 0"), ("session_token", "TEXT")):
+        if col not in have:
+            conn.execute(f"ALTER TABLE accounts ADD COLUMN {col} {ddl}")
+
+
+# ---------------------------------------------------------------- PIN
+PIN_ROUNDS = 200_000
+MAX_PIN_TRIES = 5
+LOCK_SECONDS = 60
+
+
+def _hash_pin(pin: str, salt: bytes) -> bytes:
+    return hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), salt, PIN_ROUNDS)
+
+
+def check_pin_format(pin: str) -> str | None:
+    """Return an error message, or None if the PIN is acceptable (4-8 digits)."""
+    if not (pin.isascii() and pin.isdigit() and 4 <= len(pin) <= 8):
+        return "The PIN must be 4 to 8 digits."
+    return None
+
+
+def verify_pin(account_id: int, pin: str) -> tuple[bool, str]:
+    """Check a PIN. After MAX_PIN_TRIES wrong tries the wallet is locked for LOCK_SECONDS."""
+    with connect() as c:
+        row = c.execute("SELECT pin_salt, pin_hash, failed_pins, locked_until FROM accounts WHERE id = ?",
+                        (account_id,)).fetchone()
+        if row is None:
+            return False, "Wallet not found."
+        wait = row["locked_until"] - time.time()
+        if wait > 0:
+            return False, f"Too many wrong PINs. Try again in {int(wait) + 1} seconds."
+        if row["pin_hash"] is None:
+            return False, "This wallet has no PIN. Create a new wallet."
+        if hmac.compare_digest(_hash_pin(pin, row["pin_salt"]), row["pin_hash"]):
+            c.execute("UPDATE accounts SET failed_pins = 0, locked_until = 0 WHERE id = ?", (account_id,))
+            return True, ""
+        fails = row["failed_pins"] + 1
+        if fails >= MAX_PIN_TRIES:
+            c.execute("UPDATE accounts SET failed_pins = 0, locked_until = ? WHERE id = ?",
+                      (time.time() + LOCK_SECONDS, account_id))
+            return False, f"Too many wrong PINs. Locked for {LOCK_SECONDS} seconds."
+        c.execute("UPDATE accounts SET failed_pins = ? WHERE id = ?", (fails, account_id))
+        return False, f"Wrong PIN. {MAX_PIN_TRIES - fails} tries left."
+
+
+def start_session(account_id: int) -> str:
+    """Make a fresh random token for the page link (replaces any older one)."""
+    token = secrets.token_urlsafe(24)
+    with connect() as c:
+        c.execute("UPDATE accounts SET session_token = ? WHERE id = ?", (token, account_id))
+    return token
+
+
+def end_session(account_id: int) -> None:
+    with connect() as c:
+        c.execute("UPDATE accounts SET session_token = NULL WHERE id = ?", (account_id,))
+
+
+def get_account_by_token(token: str):
+    if not token:
+        return None
+    with connect() as c:
+        return c.execute("SELECT * FROM accounts WHERE session_token = ?", (token,)).fetchone()
+
+
 # ---------------------------------------------------------------- accounts
-def create_account(name, address, private_key, kind, history_wallet, risk_score, tier) -> int:
+def create_account(name, address, private_key, kind, history_wallet, risk_score, tier, pin: str) -> int:
+    salt = os.urandom(16)
     with connect() as c:
         cur = c.execute(
-            "INSERT INTO accounts (name, address, private_key, kind, history_wallet, risk_score, tier, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (name, address, private_key, kind, history_wallet, risk_score, tier, time.time()),
+            "INSERT INTO accounts (name, address, private_key, kind, history_wallet, risk_score, tier, "
+            "created_at, pin_salt, pin_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, address, private_key, kind, history_wallet, risk_score, tier, time.time(),
+             salt, _hash_pin(pin, salt)),
         )
         return cur.lastrowid
 

@@ -23,6 +23,9 @@ def _create_tab() -> None:
         st.info("A new wallet has no transactions, so the model has no features to score. "
                 "The platform treats it as **Unknown → Medium tier** (a safety rule, not a model prediction).")
 
+    pin = st.text_input("Choose a PIN (4 to 8 digits). You need it to open this wallet again.",
+                        type="password", max_chars=8, key="new_pin")
+    pin2 = st.text_input("Repeat the PIN", type="password", max_chars=8, key="new_pin2")
     code = st.text_input("Access code (from the user guide)", type="password") if config.ACCESS_CODE else ""
 
     if st.button("Create my wallet", type="primary", width="stretch"):
@@ -30,6 +33,10 @@ def _create_tab() -> None:
             st.error("Wrong access code.")
         elif not name.strip():
             st.error("Please enter a name.")
+        elif store.check_pin_format(pin):
+            st.error(store.check_pin_format(pin))
+        elif pin != pin2:
+            st.error("The two PINs are not the same.")
         elif store.get_account_by_name(name.strip()):
             st.error("That name is taken. Use another name, or open the 'I already have one' tab.")
         else:
@@ -37,9 +44,11 @@ def _create_tab() -> None:
             if kind.startswith("Existing"):
                 row = risk.pick_wallet(tier_choice)
                 acc_id = store.create_account(name.strip(), address, key, "history", row["wallet_address"],
-                                              float(row["risk_score"]), int(row["tier"]))
+                                              float(row["risk_score"]), int(row["tier"]), pin)
             else:
-                acc_id = store.create_account(name.strip(), address, key, "new", None, None, config.NEW_WALLET_TIER)
+                acc_id = store.create_account(name.strip(), address, key, "new", None, None,
+                                              config.NEW_WALLET_TIER, pin)
+            store.start_session(acc_id)
             st.session_state["account_id"] = acc_id
             st.rerun()
 
@@ -50,9 +59,16 @@ def _existing_tab() -> None:
         st.caption("No wallets yet.")
         return
     choice = st.selectbox("Choose your wallet", [a["name"] for a in accounts])
+    pin = st.text_input("Your PIN", type="password", max_chars=8, key="open_pin")
     if st.button("Continue", width="stretch"):
-        st.session_state["account_id"] = store.get_account_by_name(choice)["id"]
-        st.rerun()
+        acc = store.get_account_by_name(choice)
+        ok, msg = store.verify_pin(acc["id"], pin)
+        if ok:
+            store.start_session(acc["id"])
+            st.session_state["account_id"] = acc["id"]
+            st.rerun()
+        else:
+            st.error(msg)
 
 
 def render() -> None:
