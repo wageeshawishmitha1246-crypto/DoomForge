@@ -1,0 +1,13 @@
+# Same versions as the laptop's .venv, so the saved Random Forest loads identically.
+streamlit==1.57.0
+web3==7.16.0
+eth-account==0.13.7
+python-dotenv==1.2.4
+requests==2.33.1
+pandas==3.0.2
+numpy==2.4.4
+scipy==1.17.1
+scikit-learn==1.8.0
+joblib==1.5.3
+pqcrypto==1.0.0
+tzdata

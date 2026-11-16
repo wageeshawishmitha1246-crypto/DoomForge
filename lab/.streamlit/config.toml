@@ -1,0 +1,22 @@
+[server]
+headless = true
+port = 8501
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#00B37A"
+backgroundColor = "#15171C"
+secondaryBackgroundColor = "#1F2229"
+textColor = "#F2F4F7"
+borderColor = "#2B2F38"
+baseRadius = "large"
+
+[theme.sidebar]
+backgroundColor = "#101216"
+secondaryBackgroundColor = "#1A1D23"
+
+[client]
+toolbarMode = "viewer"

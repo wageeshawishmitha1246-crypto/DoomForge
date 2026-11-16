@@ -1,0 +1,5 @@
+attack_scenario,risk_score,security_level,cryptography,security_policy
+Phishing Attack,0.9997060894966125,CRITICAL,SPHINCS+ + Hardware-backed Multi-Party Verification,Hardware wallet + multi-party verification
+Front-Running Attack,0.0007897045579738915,LOW,Standard ECDSA,Very low latency path
+Sandwich Attack,0.0007897045579738915,LOW,Standard ECDSA,Very low latency path
+Flash Loan Attack,0.00015690438158344477,LOW,Standard ECDSA,Very low latency path

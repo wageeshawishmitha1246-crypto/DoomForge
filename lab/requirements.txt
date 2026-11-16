@@ -1,0 +1,9 @@
+streamlit>=1.50
+web3>=7
+eth-account>=0.13
+python-dotenv
+requests
+pandas
+scikit-learn
+joblib
+pqcrypto>=1.0

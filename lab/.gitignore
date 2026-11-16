@@ -1,0 +1,11 @@
+# secrets and local data: never commit
+.env
+lab.db
+lab.db-*
+*.key
+pq_keys/
+pq_audit/
+__pycache__/
+.env.sepolia.backup
+chaindata/
+tunnel.log

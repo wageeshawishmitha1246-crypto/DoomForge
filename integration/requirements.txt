@@ -1,0 +1,6 @@
+web3
+eth-account
+pandas
+scikit-learn
+joblib
+pqcrypto>=1.0

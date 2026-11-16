@@ -1,0 +1,3 @@
+# post-quantum demo keys and audit records: never commit
+pq_keys/
+pq_attestations/
